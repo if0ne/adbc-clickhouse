@@ -192,7 +192,14 @@ impl Connection for ClickhouseConnection {
     }
 
     fn get_table_types(&self) -> Result<impl RecordBatchReader + Send> {
-        let table_types = Vec::<String>::new();
+        // https://github.com/ClickHouse/ClickHouse/blob/21c7dc1724d838042a8fcc5fecd19a9b14b4f93d/src/Storages/System/attachInformationSchemaTables.cpp#L84
+        let table_types = vec![
+            "BASE TABLE".to_string(),
+            "LOCAL TEMPORARY".to_string(),
+            "VIEW".to_string(),
+            "SYSTEM VIEW".to_string(),
+            "FOREIGN TABLE".to_string(),
+        ];
 
         let array = arrow_array::StringArray::from(table_types);
         let batch = RecordBatch::try_new(
