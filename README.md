@@ -26,6 +26,10 @@ fn main() {
                 OptionDatabase::Password,
                 OptionValue::String("password".to_string()),
             ),
+            (
+                OptionDatabase::Other("clickhouse.schema".to_string()),
+                OptionValue::String("default".to_string()),
+            )
         ])
         .unwrap();
 

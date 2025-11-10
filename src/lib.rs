@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod consts;
 pub mod database;
 pub mod driver;
 pub mod reader;

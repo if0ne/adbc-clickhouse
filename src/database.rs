@@ -6,13 +6,16 @@ use adbc_core::{
     options::{OptionDatabase, OptionValue},
 };
 
-use crate::{connection::ClickhouseConnection, utils::from_clickhouse_error};
+use crate::{
+    connection::ClickhouseConnection, consts::DATABASE_OPTION_SCHEMA, utils::from_clickhouse_error,
+};
 
 #[derive(Default)]
 pub struct ClickhouseDatabase {
     uri: Option<String>,
     username: Option<String>,
     password: Option<String>,
+    schema: Option<String>,
 }
 
 impl Optionable for ClickhouseDatabase {
@@ -37,7 +40,9 @@ impl Optionable for ClickhouseDatabase {
             OptionDatabase::Uri => self.uri = Some(value),
             OptionDatabase::Username => self.username = Some(value),
             OptionDatabase::Password => self.password = Some(value),
-            OptionDatabase::Other(_) => todo!(),
+            OptionDatabase::Other(key) if key == DATABASE_OPTION_SCHEMA => {
+                self.schema = Some(value);
+            }
             _ => {
                 return Err(Error::with_message_and_status(
                     format!("[Clickhouse] Unrecognized option: {key:?}"),
@@ -57,6 +62,11 @@ impl Optionable for ClickhouseDatabase {
             }
             OptionDatabase::Password if self.password.is_some() => {
                 Ok(self.password.clone().unwrap())
+            }
+            OptionDatabase::Other(key)
+                if key == DATABASE_OPTION_SCHEMA && self.schema.is_some() =>
+            {
+                Ok(self.schema.clone().unwrap())
             }
             _ => Err(Error::with_message_and_status(
                 format!("[Clickhouse] Unrecognized option: {key:?}"),
@@ -104,6 +114,7 @@ impl Database for ClickhouseDatabase {
         let uri = self.uri.clone();
         let username = self.username.clone();
         let password = self.password.clone();
+        let schema = self.schema.clone();
 
         let builder = clickhouse_arrow::ClientBuilder::new().with_database("default");
 
@@ -121,6 +132,12 @@ impl Database for ClickhouseDatabase {
 
         let builder = if let Some(password) = password {
             builder.with_password(password)
+        } else {
+            builder
+        };
+
+        let builder = if let Some(schema) = schema {
+            builder.with_database(schema)
         } else {
             builder
         };
