@@ -5,9 +5,8 @@ use arrow_array::*;
 use arrow_buffer::{OffsetBuffer, ScalarBuffer};
 use arrow_schema::{DataType, Field};
 use clickhouse_arrow::NativeClient;
-use tokio::runtime::Runtime;
 
-use crate::utils::{from_clickhouse_error, is_column_required, is_table_required};
+use crate::utils::{Runtime, from_clickhouse_error, is_column_required, is_table_required};
 
 use super::{ClickhouseResponseExt, NativeClientExt, is_schema_required};
 

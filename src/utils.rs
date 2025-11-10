@@ -8,6 +8,32 @@ use futures::StreamExt;
 pub(crate) use get_info::*;
 pub(crate) use get_objects::*;
 
+pub enum Runtime {
+    Handle(tokio::runtime::Handle),
+    TokioRuntime(tokio::runtime::Runtime),
+}
+
+impl Runtime {
+    pub fn new() -> std::io::Result<Self> {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            Ok(Self::Handle(handle))
+        } else {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            Ok(Self::TokioRuntime(rt))
+        }
+    }
+
+    pub fn block_on<F: Future>(&self, fut: F) -> F::Output {
+        match self {
+            Runtime::Handle(handle) => handle.block_on(fut),
+            Runtime::TokioRuntime(runtime) => runtime.block_on(fut),
+        }
+    }
+}
+
 #[derive(clickhouse_arrow::Row)]
 pub(crate) struct SchemaRow {
     pub name: String,

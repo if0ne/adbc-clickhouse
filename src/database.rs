@@ -7,7 +7,9 @@ use adbc_core::{
 };
 
 use crate::{
-    connection::ClickhouseConnection, consts::DATABASE_OPTION_SCHEMA, utils::from_clickhouse_error,
+    connection::ClickhouseConnection,
+    consts::DATABASE_OPTION_SCHEMA,
+    utils::{Runtime, from_clickhouse_error},
 };
 
 #[derive(Default)]
@@ -101,15 +103,12 @@ impl Database for ClickhouseDatabase {
     type ConnectionType = ClickhouseConnection;
 
     fn new_connection(&self) -> Result<Self::ConnectionType> {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|err| {
-                Error::with_message_and_status(
-                    format!("[Clickhouse] Failed to create tokio runtime: {err}"),
-                    Status::Internal,
-                )
-            })?;
+        let rt = Runtime::new().map_err(|err| {
+            Error::with_message_and_status(
+                format!("[Clickhouse] Failed to create tokio runtime: {err}"),
+                Status::Internal,
+            )
+        })?;
 
         let uri = self.uri.clone();
         let username = self.username.clone();

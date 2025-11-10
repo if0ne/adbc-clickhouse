@@ -6,9 +6,11 @@ use adbc_core::{
     options::{OptionStatement, OptionValue},
 };
 use arrow_array::RecordBatchReader;
-use tokio::runtime::Runtime;
 
-use crate::{reader::ClickhouseReader, utils::from_clickhouse_error};
+use crate::{
+    reader::ClickhouseReader,
+    utils::{Runtime, from_clickhouse_error},
+};
 
 pub struct ClickhouseStatement {
     rt: Arc<Runtime>,

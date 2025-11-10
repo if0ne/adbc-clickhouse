@@ -4,7 +4,8 @@ use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::{ArrowError, Schema};
 use clickhouse_arrow::ClickHouseResponse;
 use futures::{StreamExt, stream::Peekable};
-use tokio::runtime::Runtime;
+
+use crate::utils::Runtime;
 
 #[derive(Debug)]
 pub struct SingleBatchReader {

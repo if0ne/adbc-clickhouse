@@ -11,14 +11,13 @@ use adbc_core::{
 };
 use arrow_array::{RecordBatch, RecordBatchReader};
 use arrow_schema::Schema;
-use tokio::runtime::Runtime;
 
 include!(concat!(env!("OUT_DIR"), "/deps_versions.rs"));
 
 use crate::{
     reader::SingleBatchReader,
     statement::ClickhouseStatement,
-    utils::{GetInfoBuilder, GetObjectsBuilder, NativeClientExt, from_clickhouse_error},
+    utils::{GetInfoBuilder, GetObjectsBuilder, NativeClientExt, Runtime, from_clickhouse_error},
 };
 
 static INFO_FIELDS: LazyLock<HashSet<InfoCode>> = LazyLock::new(|| {
