@@ -21,6 +21,7 @@ pub(crate) struct TableRow {
 #[derive(clickhouse_arrow::Row)]
 pub(crate) struct ColumnRow {
     pub name: String,
+    pub r#type: String,
 }
 
 pub(crate) fn from_clickhouse_error(
@@ -118,7 +119,7 @@ impl NativeClientExt for NativeClient {
         filter: impl Into<String> + Send,
     ) -> Result<ClickHouseResponse<ColumnRow>, clickhouse_arrow::Error> {
         self.query_params::<ColumnRow>(
-            "SELECT name FROM system.columns WHERE database = {db:String} AND table = {table:String} AND name LIKE {column:String}",
+            "SELECT name, type FROM system.columns WHERE database = {db:String} AND table = {table:String} AND name LIKE {column:String}",
             Some(QueryParams(vec![
                 ("db".to_string(), SettingValue::String(schema.into())),
                 ("table".to_string(), SettingValue::String(table.into())),

@@ -23,6 +23,7 @@ pub(crate) struct GetObjectsBuilder<'a> {
     column_offsets: Vec<i32>,
     column_offset_prev: i32,
     column_names: Vec<String>,
+    column_types: Vec<String>,
 
     db_schema: &'a str,
     table_name: &'a str,
@@ -47,6 +48,7 @@ impl<'a> GetObjectsBuilder<'a> {
             column_offsets: vec![0],
             column_offset_prev: 0,
             column_names: vec![],
+            column_types: vec![],
 
             db_schema: db_schema.unwrap_or("%"),
             table_name: table_name.unwrap_or("%"),
@@ -131,6 +133,7 @@ impl<'a> GetObjectsBuilder<'a> {
                             self.column_offset_prev += columns.len() as i32;
                             columns.into_iter().for_each(|f| {
                                 self.column_names.push(f.name);
+                                self.column_types.push(f.r#type);
                             });
                             self.column_offsets.push(self.column_offset_prev);
                         }
@@ -162,7 +165,7 @@ impl<'a> GetObjectsBuilder<'a> {
                     ),
                     (
                         Arc::new(Field::new("xdbc_type_name", DataType::Utf8, true)),
-                        Arc::new(StringArray::new_null(self.column_names.len())) as ArrayRef,
+                        Arc::new(StringArray::from(self.column_types)) as ArrayRef,
                     ),
                     (
                         Arc::new(Field::new("xdbc_column_size", DataType::Int32, true)),
