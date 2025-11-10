@@ -6,6 +6,5 @@ pub mod statement;
 
 pub(crate) mod utils;
 
-use crate::driver::ClickhouseDriver;
-
-adbc_ffi::export_driver!(ClickhouseDriverInit, ClickhouseDriver);
+#[cfg(feature = "ffi")]
+adbc_ffi::export_driver!(ClickhouseDriverInit, crate::driver::ClickhouseDriver);
