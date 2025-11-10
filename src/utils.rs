@@ -28,7 +28,7 @@ impl Runtime {
 
     pub fn block_on<F: Future>(&self, fut: F) -> F::Output {
         match self {
-            Runtime::Handle(handle) => handle.block_on(fut),
+            Runtime::Handle(handle) => tokio::task::block_in_place(|| handle.block_on(fut)),
             Runtime::TokioRuntime(runtime) => runtime.block_on(fut),
         }
     }
