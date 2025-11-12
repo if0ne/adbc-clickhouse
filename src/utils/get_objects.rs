@@ -117,9 +117,9 @@ impl<'a> GetObjectsBuilder<'a> {
                                                         .xdbc_num_prec_radix
                                                         .map(|v| v as i16),
                                                     xdbc_nullable: Some(if v.xdbc_nullable {
-                                                        0
-                                                    } else {
                                                         1
+                                                    } else {
+                                                        0
                                                     }),
                                                     xdbc_column_def: Some(v.xdbc_column_def),
                                                     xdbc_sql_data_type: None,
