@@ -1,7 +1,8 @@
 mod get_info;
 mod get_objects;
 
-use adbc_core::options::ObjectDepth;
+use std::borrow::Cow;
+
 use clickhouse_arrow::{ClickHouseResponse, NativeClient, QueryParams, SettingValue};
 use futures::StreamExt;
 
@@ -36,18 +37,37 @@ impl Runtime {
 
 #[derive(clickhouse_arrow::Row)]
 pub(crate) struct SchemaRow {
-    pub name: String,
+    pub catalog_name: String,
+    pub schema_name: String,
 }
 
 #[derive(clickhouse_arrow::Row)]
 pub(crate) struct TableRow {
-    pub name: String,
+    pub table_catalog: String,
+    pub table_schema: String,
+    pub table_name: String,
+    pub table_type: String,
 }
 
 #[derive(clickhouse_arrow::Row)]
 pub(crate) struct ColumnRow {
-    pub name: String,
-    pub r#type: String,
+    pub table_catalog: String,
+    pub table_schema: String,
+    pub table_name: String,
+    pub table_type: String,
+    pub column_name: String,
+    pub ordianal_position: u64,
+    pub remarks: String,
+    pub xdbc_type_name: String,
+    pub xdbc_column_size: Option<u64>,
+    pub xdbc_decimal_digits: Option<u64>,
+    pub xdbc_num_prec_radix: Option<u64>,
+    pub xdbc_nullable: bool,
+    pub xdbc_column_def: String,
+    pub xdbc_datetime_sub: Option<u64>,
+    pub xdbc_char_octet_length: Option<u64>,
+    pub xdbc_is_nullable: String,
+    pub xdbc_is_generatedcolumn: bool,
 }
 
 pub(crate) fn from_clickhouse_error(
@@ -67,41 +87,68 @@ pub(crate) fn from_clickhouse_error(
     }
 }
 
-pub(crate) fn is_schema_required(depth: &ObjectDepth) -> bool {
-    matches!(
-        depth,
-        ObjectDepth::All | ObjectDepth::Schemas | ObjectDepth::Tables | ObjectDepth::Columns
-    )
-}
+const FETCH_ALL_BASE_SQL: &str = "SELECT
+    c.table_catalog,
+	c.table_schema,
+	c.table_name,
+	t.table_type,
+	c.column_name,
+	c.ordinal_position,
+	c.column_comment as remarks,
+	c.data_type as xdbc_type_name,
+	c.character_maximum_length as xdbc_column_size,
+	c.numeric_scale  as xdbc_decimal_digits,
+	c.numeric_precision_radix  as xdbc_num_prec_radix,
+	c.is_nullable::bool as xdbc_nullable,
+	c.column_default as xdbc_column_def,
+	c.datetime_precision as xdbc_datetime_sub,
+	c.character_octet_length as xdbc_char_octet_length,
+	CASE c.is_nullable
+		WHEN 1 THEN 'YES'
+		ELSE 'NO'
+	END as xdbc_is_nullable,
+	(countSubstrings(c.extra, 'GENERATED') > 0)::bool as xdbc_is_generatedcolumn
+FROM
+	INFORMATION_SCHEMA.COLUMNS c
+JOIN INFORMATION_SCHEMA.`TABLES` t ON
+	c.table_catalog = t.table_catalog AND c.table_schema = t.table_schema AND c.table_name = t.table_name";
 
-pub(crate) fn is_table_required(depth: &ObjectDepth) -> bool {
-    matches!(
-        depth,
-        ObjectDepth::All | ObjectDepth::Tables | ObjectDepth::Columns
-    )
-}
+const FETCH_MIN_TABLE_BASE_SQL: &str = "SELECT
+	t.table_catalog,
+	t.table_schema,
+	t.table_name,
+	t.table_type
+FROM
+	INFORMATION_SCHEMA.TABLES t";
 
-pub(crate) fn is_column_required(depth: &ObjectDepth) -> bool {
-    matches!(depth, ObjectDepth::All | ObjectDepth::Columns)
-}
+const FETCH_MIN_SCHEMA_BASE_SQL: &str = "SELECT
+	s.catalog_name,
+	s.schema_name
+FROM
+	INFORMATION_SCHEMA.SCHEMATA s";
 
 pub(crate) trait NativeClientExt {
-    fn fetch_schemas(
+    fn fetch_min_schemas(
         &self,
-        filter: impl Into<String> + Send,
+        catalog_filter: Option<String>,
+        schema_filter: Option<String>,
     ) -> impl Future<Output = Result<ClickHouseResponse<SchemaRow>, clickhouse_arrow::Error>> + Send;
 
-    fn fetch_schema_tables(
+    fn fetch_min_schema_tables(
         &self,
-        schema: impl Into<String> + Send,
-        filter: impl Into<String> + Send,
+        catalog_filter: Option<String>,
+        schema_filter: Option<String>,
+        table_filter: Option<String>,
+        table_type_filter: Option<Vec<String>>,
     ) -> impl Future<Output = Result<ClickHouseResponse<TableRow>, clickhouse_arrow::Error>> + Send;
 
-    fn fetch_table_columns(
+    fn fetch_all(
         &self,
-        schema: impl Into<String> + Send,
-        table: impl Into<String> + Send,
-        filter: impl Into<String> + Send,
+        catalog_filter: Option<String>,
+        schema_filter: Option<String>,
+        table_filter: Option<String>,
+        table_type_filter: Option<Vec<String>>,
+        column_filter: Option<String>,
     ) -> impl Future<Output = Result<ClickHouseResponse<ColumnRow>, clickhouse_arrow::Error>> + Send;
 
     fn fetch_version(
@@ -110,49 +157,188 @@ pub(crate) trait NativeClientExt {
 }
 
 impl NativeClientExt for NativeClient {
-    async fn fetch_schemas(
+    async fn fetch_min_schemas(
         &self,
-        filter: impl Into<String> + Send,
+        catalog_filter: Option<String>,
+        schema_filter: Option<String>,
     ) -> Result<ClickHouseResponse<SchemaRow>, clickhouse_arrow::Error> {
-        self.query_params::<SchemaRow>(
-            "SELECT name FROM system.databases where name LIKE {db:String} AND name <> 'INFORMATION_SCHEMA' AND name <> 'information_schema' AND name <> 'system'",
-            Some(QueryParams(vec![
-                ("db".to_string(), SettingValue::String(filter.into())),
-            ])),
-            None
-        ).await
+        let mut pred: Vec<Cow<'static, str>> = vec![];
+        let mut params = vec![];
+
+        if let Some(catalog_filter) = catalog_filter {
+            pred.push("s.catalog_name LIKE {catalog_filter:String}".into());
+            params.push((
+                "catalog_filter".to_string(),
+                SettingValue::String(catalog_filter),
+            ));
+        }
+
+        if let Some(schema_filter) = schema_filter {
+            pred.push("s.schema_name LIKE {schema_filter:String}".into());
+            params.push((
+                "schema_filter".to_string(),
+                SettingValue::String(schema_filter),
+            ));
+        }
+
+        let (sql, params) = if !pred.is_empty() {
+            let where_part: String = pred.join(" AND ");
+
+            (
+                format!(
+                    "{FETCH_MIN_SCHEMA_BASE_SQL}
+WHERE {where_part}"
+                ),
+                Some(QueryParams(params)),
+            )
+        } else {
+            (FETCH_MIN_SCHEMA_BASE_SQL.to_string(), None)
+        };
+
+        self.query_params::<SchemaRow>(sql, params, None).await
     }
 
-    async fn fetch_schema_tables(
+    async fn fetch_min_schema_tables(
         &self,
-        schema: impl Into<String> + Send,
-        filter: impl Into<String> + Send,
+        catalog_filter: Option<String>,
+        schema_filter: Option<String>,
+        table_filter: Option<String>,
+        table_type_filter: Option<Vec<String>>,
     ) -> Result<ClickHouseResponse<TableRow>, clickhouse_arrow::Error> {
-        self.query_params::<TableRow>(
-            "SELECT name FROM system.tables WHERE database = {db:String} and table LIKE {table:String}",
-            Some(QueryParams(vec![
-                ("db".to_string(), SettingValue::String(schema.into())),
-                ("table".to_string(), SettingValue::String(filter.into())),
-            ])),
-            None
-        ).await
+        let mut pred: Vec<Cow<'static, str>> = vec![];
+        let mut params = vec![];
+
+        if let Some(catalog_filter) = catalog_filter {
+            pred.push("t.table_catalog LIKE {catalog_filter:String}".into());
+            params.push((
+                "catalog_filter".to_string(),
+                SettingValue::String(catalog_filter),
+            ));
+        }
+
+        if let Some(schema_filter) = schema_filter {
+            pred.push("t.table_schema LIKE {schema_filter:String}".into());
+            params.push((
+                "schema_filter".to_string(),
+                SettingValue::String(schema_filter),
+            ));
+        }
+
+        if let Some(table_filter) = table_filter {
+            pred.push("t.table_name LIKE {table_filter:String}".into());
+            params.push((
+                "table_filter".to_string(),
+                SettingValue::String(table_filter),
+            ));
+        }
+
+        if let Some(table_type_filter) = table_type_filter
+            && !table_type_filter.is_empty()
+        {
+            let mut idents = vec![];
+            table_type_filter
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, v)| {
+                    idents.push(format!("{{table_type_filter_{i}:String}}"));
+                    params.push((format!("table_type_filter_{i}"), SettingValue::String(v)));
+                });
+
+            let idents = idents.join(",");
+            pred.push(format!("t.table_type IN ({idents})").into());
+        }
+
+        let (sql, params) = if !pred.is_empty() {
+            let where_part: String = pred.join(" AND ");
+
+            (
+                format!(
+                    "{FETCH_MIN_TABLE_BASE_SQL}
+WHERE {where_part}"
+                ),
+                Some(QueryParams(params)),
+            )
+        } else {
+            (FETCH_MIN_TABLE_BASE_SQL.to_string(), None)
+        };
+
+        self.query_params::<TableRow>(sql, params, None).await
     }
 
-    async fn fetch_table_columns(
+    async fn fetch_all(
         &self,
-        schema: impl Into<String> + Send,
-        table: impl Into<String> + Send,
-        filter: impl Into<String> + Send,
+        catalog_filter: Option<String>,
+        schema_filter: Option<String>,
+        table_filter: Option<String>,
+        table_type_filter: Option<Vec<String>>,
+        column_filter: Option<String>,
     ) -> Result<ClickHouseResponse<ColumnRow>, clickhouse_arrow::Error> {
-        self.query_params::<ColumnRow>(
-            "SELECT name, type FROM system.columns WHERE database = {db:String} AND table = {table:String} AND name LIKE {column:String}",
-            Some(QueryParams(vec![
-                ("db".to_string(), SettingValue::String(schema.into())),
-                ("table".to_string(), SettingValue::String(table.into())),
-                ("column".to_string(), SettingValue::String(filter.into()))
-            ])),
-            None
-        ).await
+        let mut pred: Vec<Cow<'static, str>> = vec![];
+        let mut params = vec![];
+
+        if let Some(catalog_filter) = catalog_filter {
+            pred.push("c.table_catalog LIKE {catalog_filter:String}".into());
+            params.push((
+                "catalog_filter".to_string(),
+                SettingValue::String(catalog_filter),
+            ));
+        }
+
+        if let Some(schema_filter) = schema_filter {
+            pred.push("c.table_schema LIKE {schema_filter:String}".into());
+            params.push((
+                "schema_filter".to_string(),
+                SettingValue::String(schema_filter),
+            ));
+        }
+
+        if let Some(table_filter) = table_filter {
+            pred.push("c.table_name LIKE {table_filter:String}".into());
+            params.push((
+                "table_filter".to_string(),
+                SettingValue::String(table_filter),
+            ));
+        }
+
+        if let Some(column_filter) = column_filter {
+            pred.push("c.column_name LIKE {column_filter:String}".into());
+            params.push((
+                "column_filter".to_string(),
+                SettingValue::String(column_filter),
+            ));
+        }
+
+        if let Some(table_type_filter) = table_type_filter
+            && !table_type_filter.is_empty()
+        {
+            let mut idents = vec![];
+            table_type_filter
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, v)| {
+                    idents.push(format!("{{table_type_filter_{i}:String}}"));
+                    params.push((format!("table_type_filter_{i}"), SettingValue::String(v)));
+                });
+
+            let idents = idents.join(",");
+            pred.push(format!("t.table_type IN ({idents})").into());
+        }
+
+        let (sql, params) = if !pred.is_empty() {
+            let where_part: String = pred.join(" AND ");
+
+            (
+                format!(
+                    "{FETCH_ALL_BASE_SQL}
+WHERE {where_part}"
+                ),
+                Some(QueryParams(params)),
+            )
+        } else {
+            (FETCH_ALL_BASE_SQL.to_string(), None)
+        };
+
+        self.query_params::<ColumnRow>(sql, params, None).await
     }
 
     async fn fetch_version(&self) -> Result<Option<String>, clickhouse_arrow::Error> {

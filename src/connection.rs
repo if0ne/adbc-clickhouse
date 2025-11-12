@@ -155,14 +155,15 @@ impl Connection for ClickhouseConnection {
     fn get_objects(
         &self,
         depth: adbc_core::options::ObjectDepth,
-        _catalog: Option<&str>,
+        catalog: Option<&str>,
         db_schema: Option<&str>,
         table_name: Option<&str>,
-        _table_type: Option<Vec<&str>>,
+        table_type: Option<Vec<&str>>,
         column_name: Option<&str>,
     ) -> Result<impl RecordBatchReader + Send> {
-        let builder = GetObjectsBuilder::new(db_schema, table_name, column_name);
-        let batch = builder.build(&self.rt, &self.native_conn, &depth)?;
+        let builder =
+            GetObjectsBuilder::new(catalog, db_schema, table_name, table_type, column_name);
+        let batch = self.rt.block_on(builder.build(&self.native_conn, &depth))?;
 
         let reader = SingleBatchReader::new(batch);
         Ok(reader)
