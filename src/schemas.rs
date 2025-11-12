@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,4 +88,22 @@ pub struct UsageSchema {
     pub fk_db_schema: Option<String>,
     pub fk_table: String,
     pub fk_column_name: String,
+}
+
+#[allow(clippy::type_complexity)]
+#[derive(Debug, Serialize, Deserialize)]
+pub enum InfoValue {
+    StringValue(Option<String>),
+    BoolValue(Option<bool>),
+    Int64Value(Option<i64>),
+    Int32Bitmask(Option<i32>),
+    StringList(Option<Vec<Option<String>>>),
+    Int32ToInt32ListMap(Option<HashMap<i32, Option<Vec<Option<Vec<Option<i32>>>>>>>),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InfoEntry {
+    pub info_name: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub info_value: Option<InfoValue>,
 }
