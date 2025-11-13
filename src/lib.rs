@@ -5,10 +5,16 @@ pub mod driver;
 pub mod reader;
 pub mod statement;
 
-mod schemas;
 pub(crate) mod utils;
 
+mod schemas;
+
+pub use connection::*;
+pub use consts::*;
+pub use database::*;
+pub use driver::*;
 pub use schemas::*;
+pub use statement::*;
 
 #[cfg(feature = "ffi")]
 adbc_ffi::export_driver!(ClickhouseDriverInit, crate::driver::ClickhouseDriver);
